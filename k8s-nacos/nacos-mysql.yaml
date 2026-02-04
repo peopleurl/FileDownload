@@ -1,0 +1,104 @@
+ # mysql-secret.yaml
+   apiVersion: v1
+   kind: Secret
+   metadata:
+     name: mysql-secret
+     namespace: system
+   type: Opaque
+   data:
+     root-password: bXlzcWwxMjM=  # root 密码 mysql123
+   ---
+   # mysql-configmap.yaml
+   apiVersion: v1
+   kind: ConfigMap
+   metadata:
+     name: mysql-config
+     namespace: system
+   data:
+     my.cnf: |
+       [mysqld]
+       default-authentication-plugin=mysql_native_password
+       character-set-server=utf8mb4
+       collation-server=utf8mb4_unicode_ci
+       max_connections=200
+   ---
+   # mysql-statefulset.yaml
+   apiVersion: apps/v1
+   kind: StatefulSet
+   metadata:
+     name: mysql
+     namespace: system
+   spec:
+     serviceName: mysql
+     replicas: 1
+     selector:
+       matchLabels:
+         app: mysql
+     template:
+       metadata:
+         labels:
+           app: mysql
+       spec:
+         containers:
+         - name: mysql
+           image: nacos/nacos-mysql:5.7
+           env:
+           - name: MYSQL_ROOT_PASSWORD
+             valueFrom:
+               secretKeyRef:
+                 name: mysql-secret
+                 key: root-password
+           ports:
+           - containerPort: 3306
+             name: mysql
+           volumeMounts:
+           - name: mysql-data
+             mountPath: /var/lib/mysql
+           - name: mysql-config
+             mountPath: /etc/mysql/conf.d/my.cnf
+             subPath: my.cnf
+           resources:
+             requests:
+               memory: "512Mi"
+               cpu: "250m"
+             limits:
+               memory: "1Gi"
+               cpu: "500m"
+           livenessProbe:
+             exec:
+               command: ["mysqladmin", "ping", "-h", "localhost"]
+             initialDelaySeconds: 30
+             periodSeconds: 20
+           readinessProbe:
+             exec:
+               command: ["mysqladmin", "ping", "-h", "localhost"]
+             initialDelaySeconds: 30
+             periodSeconds: 10
+         volumes:
+         - name: mysql-config
+           configMap:
+             name: mysql-config
+     volumeClaimTemplates:
+     - metadata:
+         name: mysql-data
+       spec:
+         accessModes: [ "ReadWriteOnce" ]
+         storageClassName: "nfs-dynamic"  # 修改为实际存储类
+         resources:
+           requests:
+             storage: 10Gi
+   ---
+   # mysql-service.yaml
+   apiVersion: v1
+   kind: Service
+   metadata:
+     name: mysql
+     namespace: system
+   spec:
+     selector:
+       app: mysql
+     ports:
+       - protocol: TCP
+         port: 3306
+         targetPort: 3306
+     type: ClusterIP
